@@ -106,7 +106,7 @@ Returns nil if no config file exists."
     (emacs-bazel--ensure-config-dir root)
     (with-temp-file file
       (insert (json-serialize config :false-object :json-false
-                              :null-object nil)))))
+                              :null-object :json-null)))))
 
 (defun emacs-bazel--default-config ()
   "Return a default config alist."
@@ -114,7 +114,7 @@ Returns nil if no config file exists."
     (configurations . ((default . ["--keep_going"])))
     (activeConfiguration . "default")
     (mode . ,(symbol-name emacs-bazel-default-mode))
-    (compileCommandsDir . nil)))
+    (compileCommandsDir . :json-null)))
 
 (defun emacs-bazel--get-config (root)
   "Get config for ROOT, creating default if needed."
@@ -200,7 +200,8 @@ Respects the configured mode (per-directory or single)."
                   (push entry (gethash dir entries-by-dir))))))
         (error (message "emacs-bazel: error parsing %s: %s" file err))))
     ;; Write compile_commands.json per directory (or single)
-    (let ((compdb-dir (alist-get 'compileCommandsDir config))
+    (let ((compdb-dir (let ((v (alist-get 'compileCommandsDir config)))
+                        (and (stringp v) v)))
           (count 0))
       (if (and (eq mode 'single) compdb-dir)
           ;; Single mode: write to configured dir
@@ -229,7 +230,7 @@ Respects the configured mode (per-directory or single)."
       (with-temp-file file
         (insert (json-serialize (vconcat entries)
                                 :false-object :json-false
-                                :null-object nil))))))
+                                :null-object :json-null))))))
 
 ;;;; Interactive commands
 

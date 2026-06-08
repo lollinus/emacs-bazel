@@ -52,6 +52,16 @@ configure which packages to index:
 Interactive commands allow adding/removing packages and switching
 configurations with persistence.
 
+** Build and Test Commands
+
+- =emacs-bazel-build= — prompts for a target (with =bazel.el= completion)
+  and configuration, runs =bazel build= in =compilation-mode=
+- =emacs-bazel-test= — same, filtered to test targets
+- Configuration selection via =emacs-bazel--select-configuration= reads
+  from the project's =config.json=
+- With =C-u= prefix, =emacs-bazel-refresh= also lets you pick a
+  configuration for the aspect build
+
 ** Debug with GDB
 
 - Builds the target with debug flags (=-c dbg= or custom config)
@@ -83,11 +93,15 @@ Then in your Emacs config:
   :load-path "~/projects/emacs-bazel"
   :after bazel
   :commands (emacs-bazel-refresh
+             emacs-bazel-build
+             emacs-bazel-test
              emacs-bazel-debug-target
              emacs-bazel-test-at-point)
   :bind (("C-c b r" . emacs-bazel-refresh)
+         ("C-c b b" . emacs-bazel-build)
+         ("C-c b t" . emacs-bazel-test)
          ("C-c b d" . emacs-bazel-debug-target)
-         ("C-c b t" . emacs-bazel-test-at-point)))
+         ("C-c b T" . emacs-bazel-test-at-point)))
 #+end_src
 
 * Project Layout
@@ -96,6 +110,7 @@ Then in your Emacs config:
 emacs-bazel/
 ├── emacs-bazel.el              — core: config, aspect build, compile_commands
 ├── emacs-bazel-debug.el        — GDB integration
+├── emacs-bazel-test.el         — ERT test suite (36 tests)
 ├── emacs-bazel-pkg.el          — package metadata
 ├── aspects/
 │   └── cpp-info-aspect.bzl     — Bazel aspect for C++ compile info extraction
@@ -110,6 +125,37 @@ On first use in a project, =emacs-bazel-refresh= will:
 3. Create a default =config.json=
 
 Add =/.bazel-compdb/= to your =.gitignore=.
+
+* Known Issues and Notes
+
+** Aspect Path Requires BUILD File
+
+The =.bazel-compdb/= directory must contain an empty =BUILD= file.
+Bazel resolves aspect paths as labels (=//.bazel-compdb:cpp-info-aspect.bzl=)
+and labels require the directory to be a valid Bazel package.  The setup
+command creates this automatically.
+
+** =.bazelrc= Config Conflicts
+
+If your =~/.bazelrc= or project =.bazelrc= sets a default =--config== value
+(e.g., =--config=ipn_gcc9=) and you select a different configuration in
+=emacs-bazel=, Bazel will emit warnings like:
+
+#+begin_example
+WARNING: option '--platforms' was expanded to from both
+  option '--config=ipn_gcc9' (source ~/.bazelrc) and
+  option '--config=ipn_clang' (source command line)
+#+end_example
+
+This is expected.  Command-line flags take precedence, so the build uses
+your selected configuration correctly despite the warnings.
+
+** Running Tests
+
+#+begin_src shell
+emacs -batch -l ert -l emacs-bazel.el -l emacs-bazel-test.el \
+  -f ert-run-tests-batch-and-exit
+#+end_src
 
 * License
 

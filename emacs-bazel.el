@@ -424,5 +424,28 @@ additionally prompt for extra args."
     (message "Testing %s [%s]" target cfg-name)
     (compile (mapconcat #'shell-quote-argument cmd " "))))
 
+;;;###autoload
+(defun emacs-bazel-run (target)
+  "Run `bazel run TARGET' using a selected configuration.
+Prompts for the run configuration.  With prefix argument,
+additionally prompt for extra args."
+  (interactive (list (bazel--read-target-pattern "run" nil)))
+  (let* ((root (emacs-bazel--workspace-root))
+         (config (emacs-bazel--get-config root))
+         (selection (emacs-bazel--select-configuration config "Run config: "))
+         (cfg-name (car selection))
+         (args (cdr selection))
+         (extra (when current-prefix-arg
+                  (split-string
+                   (read-string "Extra bazel args: ") nil t)))
+         (default-directory root)
+         (cmd (append bazel-command
+                      (list "run" target)
+                      args
+                      extra)))
+    (emacs-bazel--write-config root config)
+    (message "Running %s [%s]" target cfg-name)
+    (compile (mapconcat #'shell-quote-argument cmd " "))))
+
 (provide 'emacs-bazel)
 ;;; emacs-bazel.el ends here

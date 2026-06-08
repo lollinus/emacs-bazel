@@ -379,5 +379,106 @@ Creates parent directories as needed."
   (let ((config `((packages . []))))
     (should-not (emacs-bazel--packages config))))
 
+;;;; Tests for select-configuration helper
+
+(ert-deftest emacs-bazel-test-select-configuration ()
+  "select-configuration returns (name . args) and updates activeConfiguration."
+  (let ((config `((configurations . ((debug . ["--config=clang" "-g"])
+                                     (release . ["--config=clang" "-O2"])))
+                  (activeConfiguration . "release"))))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt _coll &rest _) "debug")))
+      (let ((result (emacs-bazel--select-configuration config)))
+        (should (equal (car result) "debug"))
+        (should (equal (cdr result) '("--config=clang" "-g")))
+        (should (equal (alist-get 'activeConfiguration config) "debug"))))))
+
+(ert-deftest emacs-bazel-test-select-configuration-default ()
+  "select-configuration defaults to active configuration."
+  (let ((config `((configurations . ((default . ["--keep_going"])))
+                  (activeConfiguration . "default")))
+        (prompted-default nil))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt _coll &rest args)
+                 (setq prompted-default (nth 4 args))
+                 "default")))
+      (emacs-bazel--select-configuration config)
+      (should (equal prompted-default "default")))))
+
+;;;; Tests for emacs-bazel-build / emacs-bazel-test commands
+
+(ert-deftest emacs-bazel-test-build-command-composition ()
+  "emacs-bazel-build composes correct compile command."
+  (emacs-bazel-test--with-temp-workspace
+    (let* ((config `((configurations . ((debug . ["--config=clang" "--cxxopt=-g"])
+                                        (release . ["--config=clang" "-c" "opt"])))
+                     (activeConfiguration . "debug")
+                     (packages . ["//app/..."])
+                     (mode . "per-directory")))
+           (compiled-cmd nil)
+           (default-directory root))
+      (emacs-bazel--write-config root config)
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (_prompt _coll &rest _) "release"))
+                ((symbol-function 'compile)
+                 (lambda (cmd &rest _) (setq compiled-cmd cmd)))
+                ((symbol-function 'emacs-bazel--workspace-root)
+                 (lambda () root)))
+        (let ((current-prefix-arg nil))
+          (emacs-bazel-build "//app/foo:bar"))
+        (should (stringp compiled-cmd))
+        (should (string-match-p "build" compiled-cmd))
+        (should (string-match-p "//app/foo" compiled-cmd))
+        (should (string-match-p "--config" compiled-cmd))
+        (should (string-match-p "opt" compiled-cmd))
+        ;; Should NOT contain debug flags
+        (should-not (string-match-p "\\-g" compiled-cmd))))))
+
+(ert-deftest emacs-bazel-test-test-command-composition ()
+  "emacs-bazel-test composes correct test command."
+  (emacs-bazel-test--with-temp-workspace
+    (let* ((config `((configurations . ((ci . ["--config=gcc" "--test_output=all"])))
+                     (activeConfiguration . "ci")
+                     (packages . ["//lib/..."])
+                     (mode . "per-directory")))
+           (compiled-cmd nil)
+           (default-directory root))
+      (emacs-bazel--write-config root config)
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (_prompt _coll &rest _) "ci"))
+                ((symbol-function 'compile)
+                 (lambda (cmd &rest _) (setq compiled-cmd cmd)))
+                ((symbol-function 'emacs-bazel--workspace-root)
+                 (lambda () root)))
+        (let ((current-prefix-arg nil))
+          (emacs-bazel-test "//lib/core:core_test"))
+        (should (stringp compiled-cmd))
+        (should (string-match-p "test" compiled-cmd))
+        (should (string-match-p "//lib/core" compiled-cmd))
+        (should (string-match-p "--config" compiled-cmd))
+        (should (string-match-p "--test_output" compiled-cmd))))))
+
+(ert-deftest emacs-bazel-test-build-persists-selection ()
+  "emacs-bazel-build persists the selected configuration."
+  (emacs-bazel-test--with-temp-workspace
+    (let* ((config `((configurations . ((a . ["--a"])
+                                        (b . ["--b"])))
+                     (activeConfiguration . "a")
+                     (packages . ["//x/..."])
+                     (mode . "per-directory")))
+           (default-directory root))
+      (emacs-bazel--write-config root config)
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (_prompt _coll &rest _) "b"))
+                ((symbol-function 'compile)
+                 (lambda (_cmd &rest _) nil))
+                ((symbol-function 'emacs-bazel--workspace-root)
+                 (lambda () root)))
+        (let ((current-prefix-arg nil))
+          (emacs-bazel-build "//x:t")))
+      ;; Read back config and verify active changed
+      (let ((saved (emacs-bazel--read-config root)))
+        (should (equal (alist-get 'activeConfiguration saved) "b"))))))
+
 (provide 'emacs-bazel-test)
 ;;; emacs-bazel-test.el ends here

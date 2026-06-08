@@ -106,8 +106,23 @@ Returns nil if no config file exists."
         (json-parse-buffer :object-type 'alist :array-type 'list)))))
 
 (defun emacs-bazel--write-config (root config)
-  "Write CONFIG alist to ROOT's config.json."
-  (let ((file (emacs-bazel--config-file root)))
+  "Write CONFIG alist to ROOT's config.json.
+Normalizes configurations and packages to use vectors (JSON arrays)."
+  (let* ((file (emacs-bazel--config-file root))
+         ;; Normalize configurations: ensure each value is a vector
+         (confs (alist-get 'configurations config))
+         (normalized-confs
+          (mapcar (lambda (c)
+                    (cons (car c)
+                          (if (vectorp (cdr c)) (cdr c)
+                            (vconcat (if (consp (cdr c)) (cdr c)
+                                       (list (cdr c)))))))
+                  confs))
+         ;; Normalize packages to vector
+         (pkgs (alist-get 'packages config))
+         (normalized-pkgs (if (vectorp pkgs) pkgs (vconcat pkgs))))
+    (setf (alist-get 'configurations config) normalized-confs)
+    (setf (alist-get 'packages config) normalized-pkgs)
     (emacs-bazel--ensure-config-dir root)
     (with-temp-file file
       (insert (json-serialize config :false-object :json-false
@@ -239,13 +254,17 @@ Respects the configured mode (per-directory or single)."
 ;;;; Interactive commands
 
 ;;;###autoload
-(defun emacs-bazel-refresh ()
+(defun emacs-bazel-refresh (&optional arg)
   "Generate compile_commands.json for the current Bazel workspace.
 Runs the aspect build, then assembles compile_commands.json from
-the resulting .cpp_info.json files."
-  (interactive)
+the resulting .cpp_info.json files.
+With prefix ARG, prompt to select a configuration first."
+  (interactive "P")
   (let* ((root (emacs-bazel--workspace-root))
          (config (emacs-bazel--get-config root))
+         (_ (when arg
+              (emacs-bazel--select-configuration config "Refresh config: ")
+              (emacs-bazel--write-config root config)))
          (packages (emacs-bazel--packages config))
          (args (emacs-bazel--active-args config)))
     (emacs-bazel--ensure-config-dir root)
@@ -339,6 +358,87 @@ the resulting .cpp_info.json files."
               (file-relative-name dir root))))
     (emacs-bazel--write-config root config)
     (message "Mode set to %s" mode)))
+
+(defun emacs-bazel--select-configuration (config &optional prompt)
+  "Prompt user to select a configuration from CONFIG.
+Returns the args list for the chosen configuration and updates
+activeConfiguration in CONFIG (caller should persist if desired).
+PROMPT overrides the default prompt string."
+  (let* ((configurations (alist-get 'configurations config))
+         (names (mapcar (lambda (c) (symbol-name (car c))) configurations))
+         (active (alist-get 'activeConfiguration config))
+         (choice (completing-read (or prompt "Configuration: ")
+                                  names nil t nil nil active))
+         (args (let ((v (alist-get (intern choice) configurations)))
+                 (append v nil))))
+    (setf (alist-get 'activeConfiguration config) choice)
+    (cons choice args)))
+
+;;;###autoload
+(defun emacs-bazel-build (target)
+  "Run `bazel build TARGET' using a selected configuration.
+Prompts for the build configuration from those defined in
+config.json.  The selected configuration becomes the new active
+configuration.  With prefix argument, additionally prompt for
+extra args."
+  (interactive
+   (list (read-string "Bazel build target: "
+                      (when buffer-file-name
+                        (let* ((root (emacs-bazel--workspace-root))
+                               (dir (bazel--package-directory
+                                     buffer-file-name root)))
+                          (when dir
+                            (concat "//"
+                                    (bazel--package-name dir root)
+                                    "/...")))))))
+  (let* ((root (emacs-bazel--workspace-root))
+         (config (emacs-bazel--get-config root))
+         (selection (emacs-bazel--select-configuration config "Build config: "))
+         (cfg-name (car selection))
+         (args (cdr selection))
+         (extra (when current-prefix-arg
+                  (split-string
+                   (read-string "Extra bazel args: ") nil t)))
+         (default-directory root)
+         (cmd (append bazel-command
+                      (list "build" target)
+                      args
+                      extra)))
+    (emacs-bazel--write-config root config)
+    (message "Building %s [%s]" target cfg-name)
+    (compile (mapconcat #'shell-quote-argument cmd " "))))
+
+;;;###autoload
+(defun emacs-bazel-test (target)
+  "Run `bazel test TARGET' using a selected configuration.
+Prompts for the test configuration.  With prefix argument,
+additionally prompt for extra args."
+  (interactive
+   (list (read-string "Bazel test target: "
+                      (when buffer-file-name
+                        (let* ((root (emacs-bazel--workspace-root))
+                               (dir (bazel--package-directory
+                                     buffer-file-name root)))
+                          (when dir
+                            (concat "//"
+                                    (bazel--package-name dir root)
+                                    "/...")))))))
+  (let* ((root (emacs-bazel--workspace-root))
+         (config (emacs-bazel--get-config root))
+         (selection (emacs-bazel--select-configuration config "Test config: "))
+         (cfg-name (car selection))
+         (args (cdr selection))
+         (extra (when current-prefix-arg
+                  (split-string
+                   (read-string "Extra bazel args: ") nil t)))
+         (default-directory root)
+         (cmd (append bazel-command
+                      (list "test" target)
+                      args
+                      extra)))
+    (emacs-bazel--write-config root config)
+    (message "Testing %s [%s]" target cfg-name)
+    (compile (mapconcat #'shell-quote-argument cmd " "))))
 
 (provide 'emacs-bazel)
 ;;; emacs-bazel.el ends here

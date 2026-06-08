@@ -383,16 +383,7 @@ Prompts for the build configuration from those defined in
 config.json.  The selected configuration becomes the new active
 configuration.  With prefix argument, additionally prompt for
 extra args."
-  (interactive
-   (list (read-string "Bazel build target: "
-                      (when buffer-file-name
-                        (let* ((root (emacs-bazel--workspace-root))
-                               (dir (bazel--package-directory
-                                     buffer-file-name root)))
-                          (when dir
-                            (concat "//"
-                                    (bazel--package-name dir root)
-                                    "/...")))))))
+  (interactive (list (bazel--read-target-pattern "build" nil)))
   (let* ((root (emacs-bazel--workspace-root))
          (config (emacs-bazel--get-config root))
          (selection (emacs-bazel--select-configuration config "Build config: "))
@@ -415,16 +406,7 @@ extra args."
   "Run `bazel test TARGET' using a selected configuration.
 Prompts for the test configuration.  With prefix argument,
 additionally prompt for extra args."
-  (interactive
-   (list (read-string "Bazel test target: "
-                      (when buffer-file-name
-                        (let* ((root (emacs-bazel--workspace-root))
-                               (dir (bazel--package-directory
-                                     buffer-file-name root)))
-                          (when dir
-                            (concat "//"
-                                    (bazel--package-name dir root)
-                                    "/...")))))))
+  (interactive (list (bazel--read-target-pattern "test" :only-tests)))
   (let* ((root (emacs-bazel--workspace-root))
          (config (emacs-bazel--get-config root))
          (selection (emacs-bazel--select-configuration config "Test config: "))

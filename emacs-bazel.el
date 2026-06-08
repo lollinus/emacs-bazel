@@ -103,7 +103,9 @@ Returns nil if no config file exists."
     (when (file-exists-p file)
       (with-temp-buffer
         (insert-file-contents file)
-        (json-parse-buffer :object-type 'alist :array-type 'list)))))
+        (json-parse-buffer :object-type 'alist :array-type 'list
+                           :null-object :json-null
+                           :false-object :json-false)))))
 
 (defun emacs-bazel--write-config (root config)
   "Write CONFIG alist to ROOT's config.json.

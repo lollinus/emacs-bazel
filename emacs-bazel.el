@@ -75,11 +75,16 @@
                                             buffer-file-name))))
 
 (defun emacs-bazel--ensure-config-dir (root)
-  "Ensure the config directory and aspect file exist under ROOT.
+  "Ensure the config directory, aspect file, and BUILD file exist under ROOT.
 Returns the config directory path."
   (let ((dir (emacs-bazel--config-dir root)))
     (unless (file-directory-p dir)
       (make-directory dir t))
+    ;; Empty BUILD file makes this directory a Bazel package,
+    ;; required for --aspects= to resolve the .bzl label
+    (let ((build-file (expand-file-name "BUILD" dir)))
+      (unless (file-exists-p build-file)
+        (with-temp-file build-file)))
     ;; Deploy aspect if missing or outdated
     (let ((dest (expand-file-name "cpp-info-aspect.bzl" dir))
           (src (emacs-bazel--aspect-source)))
@@ -151,8 +156,7 @@ Returns the compilation buffer."
                       (list "build")
                       packages
                       (list (format "--aspects=%s%%cpp_info_aspect" aspect-rel)
-                            "--output_groups=cpp_info_files"
-                            "--keep_going")
+                           "--output_groups=cpp_info_files")
                       args)))
     (compile (mapconcat #'shell-quote-argument cmd " "))))
 

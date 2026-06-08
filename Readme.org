@@ -1,0 +1,123 @@
+#+title: emacs-bazel — Bazel IDE features for Emacs
+#+author: lollinus
+#+options: toc:2
+
+* Overview
+
+=emacs-bazel= extends [[https://github.com/bazelbuild/emacs-bazel-mode][bazel.el]] (the official Bazel Emacs package) with IDE
+features inspired by [[https://github.com/bazelbuild/vscode-bazel][vscode-bazel]]:
+
+- *compile_commands.json generation* — uses a Bazel aspect to extract
+  compiler flags from =cc_*= targets and assembles =compile_commands.json=
+  for clangd / eglot.
+- *Per-project configuration* — persistent package lists and Bazel config
+  selection (debug/release flags, toolchain configs).
+- *GDB debugging* — build =cc_test= / =cc_binary= targets with debug flags,
+  locate the binary, and launch GDB with proper environment variables
+  (=RUNFILES_DIR=, =TEST_SRCDIR=, =TEST_TMPDIR=).
+
+The goal is to provide the core Bazel C++ development workflow entirely
+within Emacs, without requiring VSCode or any proprietary extensions.
+
+* Features
+
+** Compile Commands Generation
+
+Uses a [[https://bazel.build/extending/aspects][Bazel aspect]] to traverse the build graph and extract compile
+information from =CcInfo= providers and the C++ toolchain — no actual
+compilation required.
+
+Supports two modes:
+- *Per-directory* — writes a =compile_commands.json= in each source
+  package directory.  clangd discovers it by walking upward.
+- *Single file* — writes one =compile_commands.json= at a configured
+  location (for use with =--compile-commands-dir=).
+
+** Package / Target Selection
+
+Projects can be large (100k+ targets).  =emacs-bazel= lets you
+configure which packages to index:
+
+#+begin_src json
+{
+  "packages": ["//my/activity/...", "//platform/core/..."],
+  "configurations": {
+    "clang-debug": ["--config=clang19", "--cxxopt=-g", "--cxxopt=-O0", "--strip=never"]
+  },
+  "activeConfiguration": "clang-debug",
+  "mode": "per-directory"
+}
+#+end_src
+
+Interactive commands allow adding/removing packages and switching
+configurations with persistence.
+
+** Debug with GDB
+
+- Builds the target with debug flags (=-c dbg= or custom config)
+- Resolves the binary path via =bazel cquery --output=files=
+- Sets up =RUNFILES_DIR=, =TEST_SRCDIR=, =TEST_TMPDIR= for =cc_test=
+- Launches =gud-gdb= with the workspace root as source directory
+- Supports =--gtest_filter= via test-at-point detection
+
+* Requirements
+
+- Emacs ≥ 29.1
+- [[https://github.com/bazelbuild/emacs-bazel-mode][bazel.el]] (provides workspace detection, target completion, =bazel-command=)
+- Bazel ≥ 6.0 (for =cc_common= APIs used by the aspect)
+- clangd (for consuming =compile_commands.json= via eglot)
+- GDB (for debug features)
+
+* Installation
+
+Clone this repository into your Emacs =load-path=:
+
+#+begin_src shell
+git clone git@github.com:lollinus/emacs-bazel.git ~/projects/emacs-bazel
+#+end_src
+
+Then in your Emacs config:
+
+#+begin_src elisp
+(leaf emacs-bazel
+  :load-path "~/projects/emacs-bazel"
+  :after bazel
+  :commands (emacs-bazel-refresh
+             emacs-bazel-debug-target
+             emacs-bazel-test-at-point)
+  :bind (("C-c b r" . emacs-bazel-refresh)
+         ("C-c b d" . emacs-bazel-debug-target)
+         ("C-c b t" . emacs-bazel-test-at-point)))
+#+end_src
+
+* Project Layout
+
+#+begin_example
+emacs-bazel/
+├── emacs-bazel.el              — core: config, aspect build, compile_commands
+├── emacs-bazel-debug.el        — GDB integration
+├── emacs-bazel-pkg.el          — package metadata
+├── aspects/
+│   └── cpp-info-aspect.bzl     — Bazel aspect for C++ compile info extraction
+└── Readme.org
+#+end_example
+
+* Per-Project Setup
+
+On first use in a project, =emacs-bazel-refresh= will:
+1. Create =.bazel-compdb/= directory in the project root
+2. Deploy =cpp-info-aspect.bzl= there
+3. Create a default =config.json=
+
+Add =/.bazel-compdb/= to your =.gitignore=.
+
+* License
+
+Apache-2.0
+
+* Acknowledgements
+
+Inspired by the compile_commands and debug workflows in
+[[https://github.com/bazelbuild/vscode-bazel][vscode-bazel]].  The aspect approach for extracting compile information
+from Bazel is a well-established technique documented in the
+[[https://bazel.build/extending/aspects][Bazel aspects documentation]].

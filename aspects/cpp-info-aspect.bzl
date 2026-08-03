@@ -144,17 +144,17 @@ def _cpp_info_aspect_impl(target, ctx):
     compile_info = _extract_compile_info(ctx, target, cc_toolchain, feature_configuration)
 
     # Build the JSON content
-    cpp_info = struct(
-        label = str(ctx.label),
-        compiler = compile_info.compiler,
-        args = compile_info.args,
-        files = [src.path for src in srcs],
-    )
+    cpp_info = {
+        "label": str(ctx.label),
+        "compiler": compile_info.compiler,
+        "args": compile_info.args,
+        "files": [src.path for src in srcs],
+    }
 
     # Write per-target JSON file
     output = ctx.actions.declare_file(ctx.label.name + ".cpp_info.json")
     ctx.actions.write(
-        content = cpp_info.to_json(),
+        content = json.encode(cpp_info),
         output = output,
     )
 
